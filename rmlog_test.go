@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestIsPrintln(t *testing.T) {
@@ -45,14 +47,10 @@ func TestIsPrintln(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			expr, err := parser.ParseExpr(tt.code)
-			if err != nil {
-				t.Fatalf("failed to parse expression: %v", err)
-			}
+			assert.NoError(t, err)
 
 			result := isPrintln(expr)
-			if result != tt.expected {
-				t.Errorf("isPrintln(%s) = %v, want %v", tt.code, result, tt.expected)
-			}
+			assert.Equal(t, result, tt.expected)
 		})
 	}
 }
@@ -98,90 +96,87 @@ func TestRemoveCommentedPrintln(t *testing.T) {
 				t.Errorf("removeCommentedPrintln() returned nil, expected %d comments", tt.expected)
 			}
 
-			if result != nil && len(result.List) != tt.expected {
-				t.Errorf("removeCommentedPrintln() returned %d comments, expected %d",
-					len(result.List), tt.expected)
-			}
+			assert.Equal(t, len(result.List), tt.expected)
 		})
 	}
 }
 
 func TestProcessFile(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "println-remover-test")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
 	tests := []struct {
 		name     string
-		input    string
+		content  string
 		expected string
 	}{
 		{
-			name: "remove println statements",
-			input: `package main
-
-import "fmt"
-
+			name: "Remove println statements",
+			content: `package main
 func main() {
-	println("debug 1")
-	fmt.Println("debug 2")
-	fmt.Printf("keep this")
-	// fmt.Println("debug 3")
+    println("debug message")
+    fmt.Println("another debug")
+    log.Println("log message")
+    // println("commented debug")
+    /* fmt.Println("block comment") */
+    actualCode()
 }`,
-			expected: `package main
-
-import "fmt"
-
-func main() {
-	fmt.Printf("keep this")
-}`,
+			expected: "package main\n\nfunc main() {\n\n\tactualCode()\n}",
 		},
 		{
-			name: "keep non-println statements",
-			input: `package main
+			name: "Keep non-println statements",
+			content: `package main
 
 func main() {
-	doSomething()
-	// normal comment
-	anotherThing()
+    print("keep this")
+    fmt.Printf("keep this too")
+    actualCode()
 }`,
-			expected: `package main
-
-func main() {
-	doSomething()
-	// normal comment
-	anotherThing()
-}`,
+			expected: "package main\n\nfunc main() {\n    print(\"keep this\")\n    fmt.Printf(\"keep this too\")\n    actualCode()\n}",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testFile := filepath.Join(tmpDir, "test.go")
-			err := os.WriteFile(testFile, []byte(tt.input), 0644)
-			if err != nil {
-				t.Fatalf("failed to write test file: %v", err)
-			}
+			// Create temporary test file
+			tempDir := t.TempDir()
+			testFile := filepath.Join(tempDir, "test.noext")
 
+			err := os.WriteFile(testFile, []byte(tt.content), 0o644)
+			assert.NoError(t, err)
+
+			// Process the file
 			err = ProcessFile(testFile)
-			if err != nil {
-				t.Fatalf("processFile() failed: %v", err)
-			}
+			assert.NoError(t, err)
 
-			content, err := os.ReadFile(testFile)
-			if err != nil {
-				t.Fatalf("failed to read processed file: %v", err)
-			}
+			// Read the processed content
+			processed, err := os.ReadFile(testFile)
+			assert.NoError(t, err)
 
-			normalizedResult := strings.ReplaceAll(string(content), "\r\n", "\n")
-			normalizedExpected := strings.ReplaceAll(tt.expected, "\r\n", "\n")
+			// Compare the results (ignoring whitespace differences)
+			processedStr := strings.TrimSpace(string(processed))
+			expectedStr := strings.TrimSpace(tt.expected)
 
-			if normalizedResult != normalizedExpected {
-				t.Errorf("processFile() result differs from expected:\nwant:\n%s\n\ngot:\n%s",
-					normalizedExpected, normalizedResult)
-			}
+			assert.Equal(t, processedStr, expectedStr)
 		})
 	}
+}
+
+func TestCreateTempGoFile(t *testing.T) {
+	content := "package main\nfunc main() {}\n"
+
+	tempDir := t.TempDir()
+	testFile := filepath.Join(tempDir, "source.noext")
+
+	err := os.WriteFile(testFile, []byte(content), 0o644)
+	assert.NoError(t, err)
+
+	tempGoFile, err := createTempGoFile(testFile)
+	assert.NoError(t, err)
+
+	defer os.Remove(tempGoFile)
+
+	assert.True(t, strings.HasSuffix(tempGoFile, ".go"))
+
+	tempContent, err := os.ReadFile(tempGoFile)
+	assert.NoError(t, err)
+
+	assert.Equal(t, string(tempContent), content)
 }
