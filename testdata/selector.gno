@@ -5,5 +5,5 @@ import (
 )
 
 func main() {
-
+	ufmt.Println("Hello, world!")
 }

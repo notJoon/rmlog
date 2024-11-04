@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/format"
 	"go/parser"
-	_ "go/printer"
 	"go/token"
 	"io"
 	"os"
